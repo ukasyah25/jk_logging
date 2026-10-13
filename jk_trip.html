@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JK Trip Logger</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+:root{--bg:#e9eef2;--card:#fff;--ink:#102a3a;--mute:#5d7384;--acc:#0b7a75;--warn:#b3261e;--line:#cfd9e0}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1a22;--card:#17262f;--ink:#e8f1f5;--mute:#8fa5b3;--acc:#3dc9c0;--warn:#ff8a80;--line:#2b3f4b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,sans-serif;padding:12px;max-width:600px;margin-inline:auto}
+h1{font-size:20px;margin:4px 0 12px}
+h2{font-size:15px;margin:0 0 8px;color:var(--mute);font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button{flex:1;min-height:48px;border:0;border-radius:8px;font:600 16px system-ui;background:var(--acc);color:#fff;padding:0 10px}
+button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button.sm{min-height:36px;font-size:14px;flex:0 0 auto}
+button:disabled{opacity:.4}
+button:focus-visible,select:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center}
+.grid b{display:block;font-size:24px;line-height:1.15;font-variant-numeric:tabular-nums}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid2 b{display:block;font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums}
+.grid span,.grid2 span,.small{color:var(--mute);font-size:13px}
+#status{font-size:14px;color:var(--mute);margin:8px 0 0}
+#status.err{color:var(--warn)}
+.stats{margin-top:10px;font-size:14px;display:grid;gap:4px}
+.stats div{display:flex;justify-content:space-between;border-top:1px solid var(--line);padding-top:4px}
+.stats b{font-variant-numeric:tabular-nums}
+select{width:100%;min-height:44px;margin-top:6px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:0 8px}
+#map{height:280px;border-radius:8px;border:1px solid var(--line)}
+.cells{display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:6px;margin-top:8px}
+.cell{border-radius:8px;padding:6px 2px;text-align:center;color:#fff;font-variant-numeric:tabular-nums}
+.cell small{display:block;font-size:11px;opacity:.9}
+.cell b{display:block;font-size:15px}
+.ok{background:#2e7d32}.warn{background:#ef8f00}.bad{background:#c62828}
+.legend{font-size:12px;color:var(--mute);margin-top:6px}
+.trip{border-top:1px solid var(--line);padding:10px 0;font-size:14px}
+.trip:first-child{border-top:0}
+pre{font-size:11px;overflow-x:auto;background:var(--bg);padding:8px;border-radius:6px;max-height:220px}
+</style>
+</head>
+<body>
+<h1>JK Trip Logger</h1>
+
+<div class="card">
+  <div class="row">
+    <button id="btnConn">Sambung ke BMS</button>
+    <button id="btnStart" disabled>Mulai perjalanan</button>
+    <button id="btnStop" class="alt" disabled>Selesai</button>
+  </div>
+  <p id="status">Belum tersambung. Gunakan Chrome di Android dan nyalakan Bluetooth + GPS.</p>
+</div>
+
+<div class="card">
+  <h2>Kondisi pack saat ini</h2>
+  <div class="grid">
+    <div><b id="v">–</b><span>Volt</span></div>
+    <div><b id="a">–</b><span>Arus (A)</span></div>
+    <div><b id="soc">–</b><span>SOC %</span></div>
+    <div><b id="rem">–</b><span>Sisa Ah (BMS)</span></div>
+    <div><b id="spd">–</b><span>km/j (GPS)</span></div>
+    <div><b id="tmp">–</b><span>Suhu °C</span></div>
+  </div>
+  <p class="small" style="margin:8px 0 0">Arus negatif = dipakai, positif = diisi.</p>
+</div>
+
+<div class="card">
+  <h2>Perjalanan berjalan</h2>
+  <div class="grid2">
+    <div><b id="dist">0.00</b><span>km</span></div>
+    <div><b id="ah">0.00</b><span>Ah terpakai (integrasi arus)</span></div>
+    <div><b id="ahkm">–</b><span>Ah/km</span></div>
+    <div><b id="whkm">–</b><span>Wh/km</span></div>
+  </div>
+  <div class="stats">
+    <div>Selisih Ah dari kapasitas BMS <b id="ahBms">–</b></div>
+    <div>Kecepatan maks <b id="maxS">–</b></div>
+    <div>Arus saat kecepatan maks <b id="maxI">–</b></div>
+    <div>Selisih tegangan sel terbesar <b id="maxDelta">–</b></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Peta jalur</h2>
+  <div id="map"></div>
+  <p class="small" id="mapTitle" style="margin:6px 0 0">Titik merah = kecepatan maksimum. Titik biru = posisi sekarang.</p>
+</div>
+
+<div class="card">
+  <h2>Kondisi per sel</h2>
+  <p class="small" id="cellSum">Menunggu data sel dari BMS…</p>
+  <div class="cells" id="cells"></div>
+  <p class="legend">Hijau: selisih dengan rata-rata ≤ 20 mV · Oranye: 21–50 mV · Merah: &gt; 50 mV. Ambang ini aturan praktis, bukan standar pabrik.</p>
+</div>
+
+<div class="card">
+  <label class="small" for="layout">Format frame BMS</label>
+  <select id="layout">
+    <option value="auto">Otomatis</option>
+    <option value="0">JK02 24S (offset 0)</option>
+    <option value="32">JK02 32S (offset 32)</option>
+  </select>
+</div>
+
+<div class="card">
+  <h2>Riwayat perjalanan</h2>
+  <div id="history"></div>
+  <div class="row" style="margin-top:8px"><button id="btnClear" class="alt sm">Hapus semua riwayat</button></div>
+</div>
+
+<div class="card">
+  <details>
+    <summary class="small">Data mentah frame BMS (untuk diagnosa jika angka tidak cocok)</summary>
+    <pre id="raw">Belum ada data.</pre>
+  </details>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+const SVC = '0000ffe0-0000-1000-8000-00805f9b34fb';
+const CHR = '0000ffe1-0000-1000-8000-00805f9b34fb';
+const $ = id => document.getElementById(id);
+const per = (a, d, dp = 2) => d > 0.2 ? (a / d).toFixed(dp) : '–';
+
+let chr = null, buf = [], lastFrame = 0, poll = null, wake = null;
+let gpsId = null, gps = { la: null, lo: null, s: 0, acc: 999 }, lastPos = null, firstFix = true;
+let trip = null, lastT = null, lastI = 0, lastDump = 0;
+let map = null, trackLayer = null, liveLine = null, posMarker = null, maxMarker = null;
+
+function setStatus(t, err) { $('status').textContent = t; $('status').className = err ? 'err' : ''; }
+
+/* ================= BMS ================= */
+function cmd(code) {
+  const f = new Uint8Array(20);
+  f.set([0xAA, 0x55, 0x90, 0xEB, code]);
+  f[19] = f.slice(0, 19).reduce((s, b) => (s + b) & 255, 0);
+  return chr.writeValueWithoutResponse(f);
+}
+
+async function connect() {
+  try {
+    const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SVC] });
+    dev.addEventListener('gattserverdisconnected', () => {
+      clearInterval(poll); chr = null;
+      setStatus('Sambungan BMS terputus. Tekan "Sambung ke BMS" lagi.', true);
+      $('btnConn').disabled = false; $('btnStart').disabled = true;
+    });
+    setStatus('Menyambung ke ' + (dev.name || 'perangkat') + '…');
+    const srv = await dev.gatt.connect();
+    chr = await (await srv.getPrimaryService(SVC)).getCharacteristic(CHR);
+    await chr.startNotifications();
+    chr.addEventListener('characteristicvaluechanged', e => onChunk(new Uint8Array(e.target.value.buffer)));
+    await cmd(0x97);
+    await cmd(0x96);
+    poll = setInterval(() => { if (chr && Date.now() - lastFrame > 3000) cmd(0x96).catch(() => {}); }, 2000);
+    $('btnConn').disabled = true; $('btnStart').disabled = false;
+    setStatus('Tersambung. Menunggu data BMS…');
+  } catch (e) { setStatus('Gagal menyambung: ' + e.message, true); }
+}
+
+function onChunk(c) {
+  if (c.length >= 4 && c[0] === 0x55 && c[1] === 0xAA && c[2] === 0xEB && c[3] === 0x90) buf = [];
+  buf.push(...c);
+  if (buf.length >= 300) {
+    const f = new Uint8Array(buf.slice(0, 300)); buf = [];
+    if (f[4] === 0x02) onCellFrame(f);
+  }
+}
+
+// Posisi field. Jika angka tidak cocok, kirim isi "Data mentah" untuk diagnosa.
+function fields(f, off) {
+  const d = new DataView(f.buffer);
+  return {
+    v: d.getUint32(118 + off, true) / 1000,
+    i: d.getInt32(126 + off, true) / 1000,      // negatif = dipakai
+    t: d.getInt16(130 + off, true) / 10,
+    soc: f[139 + off],
+    remain: d.getUint32(140 + off, true) / 1000 // sisa kapasitas (Ah)
+  };
+}
+
+function detectOffset(f) {
+  const sel = $('layout').value;
+  if (sel !== 'auto') return +sel;
+  const d = new DataView(f.buffer);
+  const score = off => {
+    const x = fields(f, off); let sum = 0, cnt = 0;
+    for (let k = 0; k < 32; k++) { const c = d.getUint16(6 + 2 * k, true); if (c > 2000 && c < 4500) { sum += c; cnt++; } }
+    if (x.soc > 100 || x.v < 5 || x.v > 200 || cnt < 3) return 9;
+    return Math.abs(x.v - sum / 1000) / x.v;
+  };
+  return score(0) <= score(32) ? 0 : 32;
+}
+
+function readCells(f) {
+  const d = new DataView(f.buffer), out = [];
+  for (let k = 0; k < 32; k++) {
+    const mv = d.getUint16(6 + 2 * k, true);
+    if (mv > 2000 && mv < 4500) out.push({ n: k + 1, mv });
+  }
+  return out;
+}
+
+function onCellFrame(f) {
+  const now = Date.now();
+  const x = fields(f, detectOffset(f));
+  const cells = readCells(f);
+  lastFrame = now; lastI = x.i;
+
+  $('v').textContent = x.v.toFixed(1);
+  $('a').textContent = x.i.toFixed(1);
+  $('soc').textContent = x.soc;
+  $('rem').textContent = x.remain.toFixed(1);
+  $('tmp').textContent = x.t.toFixed(0);
+  renderCells(cells);
+
+  if (now - lastDump > 5000) { $('raw').textContent = dump(f); lastDump = now; }
+
+  if (trip) {
+    const dt = lastT ? Math.min((now - lastT) / 1000, 5) : 0;
+    trip.ah += -x.i * dt / 3600;
+    trip.wh += -x.i * x.v * dt / 3600;
+    if (trip.r0 === null) trip.r0 = x.remain;
+    trip.rNow = x.remain;
+    if (cells.length) {
+      const mvs = cells.map(c => c.mv);
+      trip.maxDelta = Math.max(trip.maxDelta, Math.max(...mvs) - Math.min(...mvs));
+    }
+    trip.pts.push({ t: now, la: gps.la, lo: gps.lo, s: +gps.s.toFixed(1), i: +x.i.toFixed(2),
+      v: +x.v.toFixed(2), soc: x.soc, r: +x.remain.toFixed(2), tmp: +x.t.toFixed(1) });
+    updateTrip();
+  }
+  lastT = now;
+  setStatus(trip ? 'Merekam perjalanan… biarkan layar tetap menyala.' : 'Tersambung. Siap mulai.');
+}
+
+function dump(f) {
+  let s = '';
+  for (let i = 0; i < f.length; i += 16) {
+    s += i.toString(16).padStart(3, '0') + ': ' +
+      [...f.slice(i, i + 16)].map(b => b.toString(16).padStart(2, '0')).join(' ') + '\n';
+  }
+  return s;
+}
+
+function renderCells(cells) {
+  if (!cells.length) {
+    $('cells').innerHTML = '';
+    $('cellSum').textContent = 'Tidak ada data sel yang valid. Coba ganti format frame.';
+    return;
+  }
+  const mvs = cells.map(c => c.mv), avg = mvs.reduce((a, b) => a + b, 0) / mvs.length;
+  const mn = Math.min(...mvs), mx = Math.max(...mvs);
+  const cMin = cells.find(c => c.mv === mn), cMax = cells.find(c => c.mv === mx);
+  $('cellSum').textContent = `${cells.length} sel · rata-rata ${avg.toFixed(0)} mV · min ${mn} mV (S${cMin.n}) · maks ${mx} mV (S${cMax.n}) · selisih ${mx - mn} mV`;
+  $('cells').innerHTML = cells.map(c => {
+    const d = c.mv - avg, a = Math.abs(d);
+    const cls = a <= 20 ? 'ok' : a <= 50 ? 'warn' : 'bad';
+    return `<div class="cell ${cls}"><small>S${c.n}</small><b>${c.mv}</b><small>${d >= 0 ? '+' : ''}${d.toFixed(0)}</small></div>`;
+  }).join('');
+}
+
+/* ================= GPS ================= */
+function haversine(a, b) {
+  const R = 6371, r = Math.PI / 180;
+  const dLa = (b.lat - a.lat) * r, dLo = (b.lon - a.lon) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function startGps() {
+  gpsId = navigator.geolocation.watchPosition(p => {
+    const c = p.coords;
+    const s = (c.speed && c.speed > 0 ? c.speed : 0) * 3.6;
+    gps = { la: c.latitude.toFixed(6), lo: c.longitude.toFixed(6), s, acc: c.accuracy };
+    $('spd').textContent = s.toFixed(0);
+    if (c.accuracy > 30) return;                      // abaikan sinyal buruk
+
+    ensureMap();
+    const ll = [c.latitude, c.longitude];
+    const pos = { lat: c.latitude, lon: c.longitude };
+    if (posMarker) posMarker.setLatLng(ll);
+    else posMarker = L.circleMarker(ll, { radius: 7, color: '#1565c0', fillOpacity: 1 }).addTo(map);
+    if (firstFix) { map.setView(ll, 16); firstFix = false; }
+
+    if (trip) {
+      if (lastPos) {
+        const d = haversine(lastPos, pos);
+        if (d > 0.003 || s > 3) trip.dist += d;       // saring goyangan GPS saat diam
+      }
+      if (liveLine) liveLine.addLatLng(ll);
+      // kecepatan maksimum: simpan juga arus BMS pada saat itu
+      if (c.accuracy <= 20 && s > trip.max.s && s < 200) {
+        trip.max = { s, i: lastI, t: Date.now(), la: gps.la, lo: gps.lo };
+        setMaxMarker(trip.max);
+      }
+      updateTrip();
+    }
+    lastPos = pos;
+  }, e => setStatus('GPS error: ' + e.message, true), { enableHighAccuracy: true, maximumAge: 0 });
+}
+
+/* ================= PETA ================= */
+function ensureMap() {
+  if (map) return;
+  map = L.map('map').setView([-6.2, 106.8], 13);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  trackLayer = L.layerGroup().addTo(map);
+}
+
+function setMaxMarker(m) {
+  if (maxMarker) maxMarker.remove();
+  maxMarker = null;
+  if (m && m.la != null) {
+    maxMarker = L.circleMarker([+m.la, +m.lo], { radius: 9, color: '#c62828', fillOpacity: 1 })
+      .bindPopup(`Maks ${m.s.toFixed(0)} km/j · ${Math.abs(m.i).toFixed(1)} A`).addTo(map);
+  }
+}
+
+function drawTrack(pts, max) {
+  ensureMap();
+  trackLayer.clearLayers();
+  liveLine = null;
+  const ll = pts.filter(p => p.la != null).map(p => [+p.la, +p.lo]);
+  if (ll.length > 1) L.polyline(ll, { color: '#0b7a75', weight: 4 }).addTo(trackLayer);
+  setMaxMarker(max && max.t ? max : null);
+  if (ll.length > 1) map.fitBounds(ll, { padding: [20, 20], maxZoom: 17 });
+  else if (ll.length) map.setView(ll[0], 16);
+  $('mapTitle').textContent = `${pts.length} titik · ${ll.length} posisi GPS`;
+}
+
+/* ================= PERJALANAN ================= */
+function updateTrip() {
+  $('dist').textContent = trip.dist.toFixed(2);
+  $('ah').textContent = trip.ah.toFixed(2);
+  $('ahkm').textContent = per(trip.ah, trip.dist);
+  $('whkm').textContent = per(trip.wh, trip.dist, 1);
+  $('ahBms').textContent = trip.r0 !== null ? (trip.r0 - trip.rNow).toFixed(2) + ' Ah' : '–';
+  $('maxS').textContent = trip.max.t ? trip.max.s.toFixed(0) + ' km/j' : '–';
+  $('maxI').textContent = trip.max.t ? Math.abs(trip.max.i).toFixed(1) + ' A' : '–';
+  $('maxDelta').textContent = trip.maxDelta + ' mV';
+}
+
+async function start() {
+  trip = { t0: Date.now(), dist: 0, ah: 0, wh: 0, r0: null, rNow: 0, pts: [],
+           max: { s: 0, i: 0, t: 0, la: null, lo: null }, maxDelta: 0 };
+  lastT = null; lastPos = null; firstFix = true;
+  ensureMap();
+  trackLayer.clearLayers();
+  setMaxMarker(null);
+  liveLine = L.polyline([], { color: '#0b7a75', weight: 4 }).addTo(trackLayer);
+  if (gpsId === null) startGps();
+  try { wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+  updateTrip();
+  $('btnStart').disabled = true; $('btnStop').disabled = false;
+  setStatus('Merekam perjalanan… biarkan layar tetap menyala.');
+}
+
+function stop() {
+  const t = trip;
+  const h = loadHist();
+  h.unshift({ t: t.t0, dist: t.dist, ah: t.ah, wh: t.wh,
+              ahBms: t.r0 !== null ? t.r0 - t.rNow : null,
+              max: t.max, maxDelta: t.maxDelta, n: t.pts.length });
+  try { localStorage.setItem('jkTrack:' + t.t0, JSON.stringify(t.pts)); }
+  catch (e) { setStatus('Penyimpanan penuh, jejak peta tidak tersimpan.', true); }
+  h.slice(20).forEach(x => localStorage.removeItem('jkTrack:' + x.t));
+  localStorage.setItem('jkTrips', JSON.stringify(h.slice(0, 20)));
+  trip = null; liveLine = null;
+  if (wake) wake.release().catch(() => {});
+  $('btnStart').disabled = false; $('btnStop').disabled = true;
+  setStatus('Perjalanan disimpan.');
+  showHistory();
+}
+
+/* ================= RIWAYAT & EKSPOR ================= */
+function loadHist() { return JSON.parse(localStorage.getItem('jkTrips') || '[]'); }
+const fname = t => new Date(t).toISOString().slice(0, 16).replace(/[:T]/g, '-');
+
+function showHistory() {
+  const h = loadHist();
+  $('history').innerHTML = h.length ? h.map((t, i) => `
+    <div class="trip"><b>${new Date(t.t).toLocaleString('id-ID')}</b><br>
+    ${t.dist.toFixed(2)} km · ${t.ah.toFixed(2)} Ah · ${per(t.ah, t.dist)} Ah/km · ${per(t.wh, t.dist, 1)} Wh/km<br>
+    Maks ${t.max.t ? t.max.s.toFixed(0) + ' km/j pada ' + Math.abs(t.max.i).toFixed(1) + ' A' : '–'} · selisih sel maks ${t.maxDelta} mV
+    <div class="row" style="margin-top:6px">
+      <button class="sm alt" data-a="map" data-i="${i}">Lihat peta</button>
+      <button class="sm alt" data-a="gpx" data-i="${i}">GPX</button>
+      <button class="sm alt" data-a="csv" data-i="${i}">CSV</button>
+    </div></div>`).join('')
+    : '<p class="small">Belum ada perjalanan tersimpan.</p>';
+}
+
+$('history').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const t = loadHist()[+b.dataset.i];
+  const pts = JSON.parse(localStorage.getItem('jkTrack:' + t.t) || '[]');
+  if (b.dataset.a === 'map') { drawTrack(pts, t.max); $('map').scrollIntoView({ behavior: 'smooth' }); }
+  if (b.dataset.a === 'gpx') download('perjalanan-' + fname(t.t) + '.gpx', toGpx(pts, 'Perjalanan ' + fname(t.t)), 'application/gpx+xml');
+  if (b.dataset.a === 'csv') download('perjalanan-' + fname(t.t) + '.csv', toCsv(pts), 'text/csv');
+};
+
+function toGpx(pts, name) {
+  const seg = pts.filter(p => p.la != null).map(p =>
+    `<trkpt lat="${p.la}" lon="${p.lo}"><time>${new Date(p.t).toISOString()}</time>` +
+    `<extensions><speed_kmh>${p.s}</speed_kmh><current_a>${p.i}</current_a><volt>${p.v}</volt>` +
+    `<soc>${p.soc}</soc><remain_ah>${p.r}</remain_ah><temp_c>${p.tmp}</temp_c></extensions></trkpt>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="JK Trip Logger" xmlns="http://www.topografix.com/GPX/1/1">\n` +
+    `<trk><name>${name}</name><trkseg>\n${seg}\n</trkseg></trk>\n</gpx>`;
+}
+
+function toCsv(pts) {
+  const head = 'waktu,lat,lon,kecepatan_kmj,volt,arus_a,soc,sisa_ah,suhu_c\n';
+  return head + pts.map(p => [new Date(p.t).toISOString(), p.la, p.lo, p.s, p.v, p.i, p.soc, p.r, p.tmp].join(',')).join('\n');
+}
+
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+}
+
+$('btnClear').onclick = () => {
+  if (!confirm('Hapus semua riwayat perjalanan?')) return;
+  loadHist().forEach(x => localStorage.removeItem('jkTrack:' + x.t));
+  localStorage.removeItem('jkTrips');
+  showHistory();
+};
+
+$('btnConn').onclick = connect;
+$('btnStart').onclick = start;
+$('btnStop').onclick = stop;
+if (!navigator.bluetooth) setStatus('Browser ini tidak mendukung Web Bluetooth. Pakai Chrome di Android.', true);
+showHistory();
+</script>
+</body>
+</html>
