@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -300,6 +301,16 @@ function onChunk(c) {
     const f = new Uint8Array(buf.slice(0, 300)); buf = [];
     if (f[4] === 0x02) onCellFrame(f);
   }
+console.table({
+  SOC_raw_byte_173: f[173],
+  SOH_raw_byte_190: f[190],
+  SOC_percent: x.soc,
+  SOH_percent: x.soh,
+  Remaining_Ah: x.remain,
+  Nominal_Ah: x.nominal,
+  Remaining_Ah_on_50Ah_scale:
+    x.soh > 0 ? (x.remain / (x.soh / 100)).toFixed(2) : null
+});
 }
 
 // Posisi field dicocokkan dengan dump + screenshot app JK-BMS (24S).
