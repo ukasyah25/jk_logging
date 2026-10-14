@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JK Trip Logger</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+:root{--bg:#e9eef2;--card:#fff;--ink:#102a3a;--mute:#5d7384;--acc:#0b7a75;--warn:#b3261e;--line:#cfd9e0;--ok:#2e7d32}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1a22;--card:#17262f;--ink:#e8f1f5;--mute:#8fa5b3;--acc:#3dc9c0;--warn:#ff8a80;--line:#2b3f4b;--ok:#4caf50}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,sans-serif;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 4px}
+h1{font-size:19px;margin:0}
+h2{font-size:15px;margin:0 0 8px;color:var(--mute);font-weight:600}
+.status{font-size:13px;color:var(--mute);margin:0;padding:0 14px 8px}
+.status.err{color:var(--warn)}
+.tab{display:none;padding:0 12px 12px}
+.tab.active{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button{min-height:48px;border:0;border-radius:10px;font:600 16px system-ui;background:var(--acc);color:#fff;padding:0 14px}
+button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button.sm{min-height:36px;font-size:14px;padding:0 10px}
+button:disabled{opacity:.4}
+button:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.tabbar{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+.tabbar button{flex:1;min-height:56px;background:none;color:var(--mute);font-size:13px;border-radius:0;padding:0}
+.tabbar button.on{color:var(--acc);font-weight:700}
+.gauges{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+svg.g{width:100%;height:auto}
+.arc{fill:none;stroke-width:12;stroke-linecap:round}
+.arc.bg{stroke:var(--line)}
+.gn{font:700 40px system-ui;fill:var(--ink)}
+.gu{font:13px system-ui;fill:var(--mute)}
+.gs{font:12px system-ui;fill:var(--mute)}
+.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;margin-top:8px}
+.mini b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.mini span{font-size:12px;color:var(--mute)}
+.cta{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
+.cta button{min-height:68px;font-size:22px;border-radius:14px}
+.btnStart{background:var(--ok)}
+.btnStop{background:var(--warn)}
+.hide{display:none!important}
+.stat2{display:grid;grid-template-columns:1fr 1fr;gap:10px;text-align:center}
+.stat2 b{display:block;font-size:26px;font-variant-numeric:tabular-nums}
+.stat2 span{font-size:13px;color:var(--mute)}
+.stats{margin-top:10px;font-size:14px;display:grid;gap:4px}
+.stats div{display:flex;justify-content:space-between;border-top:1px solid var(--line);padding-top:4px}
+.stats b{font-variant-numeric:tabular-nums}
+#map{height:62vh;min-height:300px;border-radius:10px;border:1px solid var(--line)}
+.cells{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:6px;margin-top:8px}
+.cell{border-radius:8px;padding:6px 2px;text-align:center;color:#fff;font-variant-numeric:tabular-nums}
+.cell small{display:block;font-size:11px;opacity:.9}
+.cell b{display:block;font-size:15px}
+.ok{background:#2e7d32}.warn{background:#ef8f00}.bad{background:#c62828}
+.legend{font-size:12px;color:var(--mute);margin-top:6px}
+.trip{border-top:1px solid var(--line);padding:10px 0;font-size:14px}
+.trip:first-child{border-top:0}
+pre{font-size:11px;overflow-x:auto;background:var(--bg);padding:8px;border-radius:6px;max-height:260px}
+.small{color:var(--mute);font-size:13px}
+
+:root[data-theme=night]{--bg:#05080d;--card:#0d141c;--ink:#e6f3ff;--mute:#7f93a6;--acc:#19e3c6;--line:#1b2a38;--warn:#ff5470;--ok:#5cff8a}
+:root[data-theme=day]{--bg:#f4f6f8;--card:#fff;--ink:#0a1620;--mute:#3d5163;--acc:#006a63;--line:#aab8c4;--warn:#b00020;--ok:#1b6e2a}
+[data-theme=night] #curArc{filter:drop-shadow(0 0 4px currentColor)}
+.pbar{position:relative;height:10px;border-radius:6px;background:var(--line);overflow:hidden;margin:2px 4px 4px}
+.pbar i{display:block;height:100%;width:0;border-radius:6px}
+.pbar u{position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--warn)}
+.pbl{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);padding:0 4px 6px}
+.hdrBtns{display:flex;gap:6px}
+.brow{display:grid;grid-template-columns:92px 1fr 44px;align-items:center;gap:8px;margin:4px 0;font-size:13px}
+.brow i{display:block;height:10px;border-radius:5px;background:var(--acc)}
+.brow b{text-align:right}
+.rng{font-size:44px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>JK Trip Logger</h1>
+  <div class="hdrBtns"><button id="btnTheme" class="sm alt">Siang</button><button id="btnConn" class="sm">Sambung BMS</button></div>
+</header>
+<p id="status" class="status">Belum tersambung ke BMS.</p>
+
+<!-- ============ DASHBOARD ============ -->
+<section id="tab-dash" class="tab active">
+  <div class="card">
+    <div class="pbar"><i id="pbFill"></i></div>
+    <div class="pbl"><span>0 A</span><span>300 A</span></div>
+    <svg class="g" viewBox="0 0 200 200" style="max-width:360px;margin:0 auto;display:block">
+      <path id="trkR" class="arc bg"/><path id="trkL" class="arc bg"/>
+      <path id="curArc" class="arc" style="stroke:currentColor"/>
+      <text x="100" y="112" text-anchor="middle" class="gn" id="spdNum" style="font-size:64px">0</text>
+      <text x="100" y="132" text-anchor="middle" class="gu">km/j · GPS</text>
+      <text x="100" y="166" text-anchor="middle" class="gn" id="ampNum" style="font-size:26px">0</text>
+      <text x="100" y="182" text-anchor="middle" class="gu" id="ampLbl">Diam</text>
+    </svg>
+    <p class="small" style="margin:0;text-align:center">Nol di tengah · Kanan: pemakaian 0–300 A · Kiri: regen</p>
+    <div class="mini">
+      <div><b id="v">–</b><span>Volt</span></div>
+      <div><b id="soc">–</b><span>SOC %</span></div>
+      <div><b id="rem">–</b><span id="remLbl">Sisa Ah</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Estimasi jarak sisa</h2>
+    <div><span class="rng" id="range">–</span> <span class="small" id="rangeSrc">menunggu data BMS</span></div>
+    <p class="small" style="margin:4px 0 0">Sisa Ah × rata-rata km/Ah, dihitung sampai 0 Ah. Perkiraan kasar, berubah mengikuti kecepatan dan medan.</p>
+  </div>
+
+  <div class="card">
+    <h2>Perjalanan berjalan</h2>
+    <div class="stat2">
+      <div><b id="dist">0.00</b><span>km</span></div>
+      <div><b id="ah">0.00</b><span>Ah terpakai</span></div>
+      <div><b id="ahkm">–</b><span>km/Ah</span></div>
+      <div><b id="maxS">–</b><span>Kecepatan maks</span></div>
+    </div>
+  </div>
+
+  <div class="cta">
+    <button id="btnStart" class="btnStart">MULAI PERJALANAN</button>
+    <button id="btnStop" class="btnStop hide">SELESAI</button>
+  </div>
+</section>
+
+<!-- ============ SEL ============ -->
+<section id="tab-cell" class="tab">
+  <div class="card">
+    <h2>Kondisi per sel</h2>
+    <p class="small" id="cellSum">Menunggu data sel dari BMS…</p>
+    <div class="cells" id="cells"></div>
+    <p class="legend">Hijau: selisih dengan rata-rata ≤ 20 mV · Oranye: 21–50 mV · Merah: &gt; 50 mV. R = resistansi kabel balance (Ω), sama seperti app JK-BMS.</p>
+  </div>
+</section>
+
+<!-- ============ PETA ============ -->
+<section id="tab-map" class="tab">
+  <div class="card">
+    <h2>Peta jalur</h2>
+    <div id="map"></div>
+    <p class="small" id="mapTitle" style="margin:6px 0 0">Titik biru = posisi sekarang. Titik merah = kecepatan maksimum.</p>
+  </div>
+</section>
+
+<!-- ============ RIWAYAT ============ -->
+<section id="tab-hist" class="tab">
+  <div id="histList">
+    <div class="card">
+      <h2>Insight kebiasaan berkendara</h2>
+      <div id="insights"></div>
+    </div>
+    <div class="card">
+      <h2>Riwayat perjalanan</h2>
+      <div id="history"></div>
+    </div>
+  </div>
+  <div id="histDetail" class="hide">
+    <div class="row" style="margin-bottom:10px"><button id="btnBack" class="alt sm">← Kembali ke riwayat</button></div>
+    <div class="card">
+      <h2 id="dTitle">Perjalanan</h2>
+      <div id="dmap" style="height:52vh;min-height:260px;border-radius:10px;border:1px solid var(--line)"></div>
+      <p class="small" id="dMapNote" style="margin:6px 0 0"></p>
+    </div>
+    <div class="card">
+      <h2>Ringkasan perjalanan</h2>
+      <div id="dSum"></div>
+      <div class="row" style="margin-top:10px"><button id="dGpx" class="alt sm">Unduh GPX</button><button id="dCsv" class="alt sm">Unduh CSV</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LAINNYA ============ -->
+<section id="tab-more" class="tab">
+  <div class="card">
+    <h2>Data mentah frame BMS</h2>
+    <p class="small">Untuk diagnosa jika angka tidak cocok. Kirim isi ini bila ada yang aneh.</p>
+    <pre id="raw">Belum ada data.</pre>
+  </div>
+  <div class="card">
+    <h2>Riwayat</h2>
+    <button id="btnClear" class="alt sm">Hapus semua riwayat</button>
+  </div>
+</section>
+
+<nav class="tabbar">
+  <button data-tab="dash" class="on">Dashboard</button>
+  <button data-tab="cell">Sel</button>
+  <button data-tab="map">Peta</button>
+  <button data-tab="hist">Riwayat</button>
+  <button data-tab="more">Lainnya</button>
+</nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+const SVC = '0000ffe0-0000-1000-8000-00805f9b34fb';
+const CHR = '0000ffe1-0000-1000-8000-00805f9b34fb';
+const $ = id => document.getElementById(id);
+const per = (a, d, dp = 2) => d > 0.2 ? (a / d).toFixed(dp) : '–';
+const eff = (d, a) => a > 0.05 ? (d / a).toFixed(2) : '–';   // km per Ah
+const SPD_MAX = 120, AMP_MAX = 300, AMP_NOMINAL = 150;
+
+let chr = null, buf = [], lastFrame = 0, poll = null, wake = null;
+let gpsId = null, gps = { la: null, lo: null, s: 0, acc: 999 }, lastPos = null, firstFix = true;
+let trip = null, lastT = null, lastI = 0, lastDump = 0;
+let map = null, trackLayer = null, liveLine = null, posMarker = null, maxMarker = null;
+
+function setStatus(t, err) { $('status').textContent = t; $('status').className = 'status' + (err ? ' err' : ''); }
+
+/* ================= GAUGE ================= */
+// Nol di puncak. Kanan = pemakaian (0-300 A), kiri = regen (0-100 A, skala asumsi).
+const R = 88, REGEN_MAX = 100;
+const pt = th => { const a = th * Math.PI / 180; return [100 + R * Math.sin(a), 100 - R * Math.cos(a)]; };
+function arcTh(th) {
+  if (Math.abs(th) < 0.3) return '';
+  const [x, y] = pt(th);
+  return `M100 ${100 - R} A${R} ${R} 0 0 ${th > 0 ? 1 : 0} ${x.toFixed(2)} ${y.toFixed(2)}`;
+}
+$('trkR').setAttribute('d', arcTh(135));
+$('trkL').setAttribute('d', arcTh(-135));
+let tS = 0, tI = 0, dS = 0, dI = 0;
+const setSpeed = v => { tS = v; };
+const setAmp = v => { tI = v; };
+function paint() {
+  dS += (tS - dS) * 0.2; dI += (tI - dI) * 0.2;
+  if (Math.abs(tS - dS) < 0.05) dS = tS;
+  if (Math.abs(tI - dI) < 0.05) dI = tI;
+  if ($('tab-dash').classList.contains('active')) {
+    const a = Math.abs(dI), f = Math.min(a / AMP_MAX, 1), use = dI < -0.5, reg = dI > 0.5;
+    const col = use ? `hsl(${Math.round(165 - 165 * f)} 95% 55%)` : reg ? '#29b6f6' : 'var(--mute)';
+    $('spdNum').textContent = Math.round(dS);
+    $('ampNum').textContent = a.toFixed(0) + ' A';
+    $('ampLbl').textContent = use ? 'Pakai' : reg ? 'Regen' : 'Diam';
+    const c = $('curArc');
+    c.setAttribute('d', arcTh(use ? f * 135 : reg ? -Math.min(dI / REGEN_MAX, 1) * 135 : 0));
+    c.style.color = col;
+    const p = $('pbFill'); p.style.width = (use ? f * 100 : 0) + '%'; p.style.background = col;
+  }
+  requestAnimationFrame(paint);
+}
+requestAnimationFrame(paint);
+
+/* ================= BMS ================= */
+function cmd(code) {
+  const f = new Uint8Array(20);
+  f.set([0xAA, 0x55, 0x90, 0xEB, code]);
+  f[19] = f.slice(0, 19).reduce((s, b) => (s + b) & 255, 0);
+  return chr.writeValueWithoutResponse(f);
+}
+
+async function connect() {
+  try {
+    const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SVC] });
+    dev.addEventListener('gattserverdisconnected', () => {
+      clearInterval(poll); chr = null;
+      setStatus('Sambungan BMS terputus. Tekan "Sambung BMS" lagi.', true);
+      $('btnConn').disabled = false;
+    });
+    setStatus('Menyambung ke ' + (dev.name || 'perangkat') + '…');
+    const srv = await dev.gatt.connect();
+    chr = await (await srv.getPrimaryService(SVC)).getCharacteristic(CHR);
+    await chr.startNotifications();
+    chr.addEventListener('characteristicvaluechanged', e => onChunk(new Uint8Array(e.target.value.buffer)));
+    await cmd(0x97);
+    await cmd(0x96);
+    poll = setInterval(() => { if (chr && Date.now() - lastFrame > 3000) cmd(0x96).catch(() => {}); }, 2000);
+    $('btnConn').disabled = true;
+    setStatus('BMS tersambung. Menunggu data…');
+  } catch (e) { setStatus('Gagal menyambung: ' + e.message, true); }
+}
+
+function onChunk(c) {
+  if (c.length >= 4 && c[0] === 0x55 && c[1] === 0xAA && c[2] === 0xEB && c[3] === 0x90) buf = [];
+  buf.push(...c);
+  if (buf.length >= 300) {
+    const f = new Uint8Array(buf.slice(0, 300)); buf = [];
+    if (f[4] === 0x02) onCellFrame(f);
+  }
+}
+
+// Posisi field dicocokkan dengan dump + screenshot app JK-BMS (24S).
+function fields(f) {
+  const d = new DataView(f.buffer);
+  return {
+    v: d.getUint32(150, true) / 1000,      // tegangan total (V)
+    i: d.getInt32(158, true) / 1000,       // arus (A), negatif = dipakai
+    t: d.getInt16(162, true) / 10,         // suhu baterai T1 (°C)
+    soc: f[173],                           // SOC (%)
+    remain: d.getUint32(174, true) / 1000, // sisa Ah (hitungan internal BMS)
+    nominal: d.getUint32(178, true) / 1000 // kapasitas nominal (Ah)
+  };
+}
+
+function readCells(f) {
+  const d = new DataView(f.buffer), out = [];
+  for (let k = 0; k < 32; k++) {
+    const mv = d.getUint16(6 + 2 * k, true);
+    if (mv > 2000 && mv < 4500) out.push({ n: k + 1, mv, r: d.getUint16(80 + 2 * k, true) / 1000 });
+  }
+  return out;
+}
+
+function onCellFrame(f) {
+  const now = Date.now();
+  const x = fields(f);
+  const cells = readCells(f);
+  lastFrame = now; lastI = x.i;
+
+  $('v').textContent = x.v.toFixed(1);
+  $('soc').textContent = x.soc;
+  $('rem').textContent = x.remain.toFixed(2);
+  lastRemain = x.remain; updateRange();
+  $('remLbl').textContent = 'Sisa Ah · dari ' + x.nominal.toFixed(1);
+  setAmp(x.i);
+  renderCells(cells);
+  if (now - lastDump > 5000) { $('raw').textContent = dump(f); lastDump = now; }
+
+  if (trip) {
+    const dt = lastT ? Math.min((now - lastT) / 1000, 5) : 0;
+    trip.ah += -x.i * dt / 3600;
+    trip.wh += -x.i * x.v * dt / 3600;
+    if (trip.r0 === null) trip.r0 = x.remain;
+    trip.rNow = x.remain;
+    if (cells.length) {
+      const mvs = cells.map(c => c.mv);
+      trip.maxDelta = Math.max(trip.maxDelta, Math.max(...mvs) - Math.min(...mvs));
+    }
+    trip.pts.push({ t: now, la: gps.la, lo: gps.lo, s: +gps.s.toFixed(1), i: +x.i.toFixed(2),
+      v: +x.v.toFixed(2), soc: x.soc, r: +x.remain.toFixed(2), tmp: +x.t.toFixed(1) });
+    updateTrip();
+  }
+  lastT = now;
+  if (!trip) setStatus('BMS tersambung · ' + (cells.length) + ' sel terbaca.');
+}
+
+function dump(f) {
+  let s = '';
+  for (let i = 0; i < f.length; i += 16) {
+    s += i.toString(16).padStart(3, '0') + ': ' +
+      [...f.slice(i, i + 16)].map(b => b.toString(16).padStart(2, '0')).join(' ') + '\n';
+  }
+  return s;
+}
+
+function renderCells(cells) {
+  if (!cells.length) {
+    $('cells').innerHTML = '';
+    $('cellSum').textContent = 'Tidak ada data sel yang valid.';
+    return;
+  }
+  const mvs = cells.map(c => c.mv), avg = mvs.reduce((a, b) => a + b, 0) / mvs.length;
+  const mn = Math.min(...mvs), mx = Math.max(...mvs);
+  const cMin = cells.find(c => c.mv === mn), cMax = cells.find(c => c.mv === mx);
+  $('cellSum').textContent = `${cells.length} sel · rata-rata ${avg.toFixed(0)} mV · min ${mn} mV (S${cMin.n}) · maks ${mx} mV (S${cMax.n}) · selisih ${mx - mn} mV`;
+  $('cells').innerHTML = cells.map(c => {
+    const d = c.mv - avg, a = Math.abs(d);
+    const cls = a <= 20 ? 'ok' : a <= 50 ? 'warn' : 'bad';
+    return `<div class="cell ${cls}"><small>S${c.n}</small><b>${c.mv}</b><small>${d >= 0 ? '+' : ''}${d.toFixed(0)} mV</small><small>R ${c.r.toFixed(3)}</small></div>`;
+  }).join('');
+}
+
+/* ================= GPS ================= */
+function haversine(a, b) {
+  const R = 6371, r = Math.PI / 180;
+  const dLa = (b.lat - a.lat) * r, dLo = (b.lon - a.lon) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function startGps() {
+  gpsId = navigator.geolocation.watchPosition(p => {
+    const c = p.coords;
+    const s = (c.speed && c.speed > 0 ? c.speed : 0) * 3.6;
+    gps = { la: c.latitude.toFixed(6), lo: c.longitude.toFixed(6), s, acc: c.accuracy };
+    setSpeed(s);
+    if (c.accuracy > 30) return;
+
+    ensureMap();
+    const ll = [c.latitude, c.longitude];
+    const pos = { lat: c.latitude, lon: c.longitude };
+    if (posMarker) posMarker.setLatLng(ll);
+    else posMarker = L.circleMarker(ll, { radius: 7, color: '#1565c0', fillOpacity: 1 }).addTo(map);
+    if (firstFix) { map.setView(ll, 16); firstFix = false; }
+
+    if (trip) {
+      if (lastPos) {
+        const d = haversine(lastPos, pos);
+        if (d > 0.003 || s > 3) trip.dist += d;
+      }
+      if (liveLine) liveLine.addLatLng(ll);
+      if (c.accuracy <= 20 && s > trip.max.s && s < 200) {
+        trip.max = { s, i: lastI, t: Date.now(), la: gps.la, lo: gps.lo };
+        setMaxMarker(trip.max);
+      }
+      updateTrip();
+    }
+    lastPos = pos;
+  }, e => setStatus('GPS error: ' + e.message, true), { enableHighAccuracy: true, maximumAge: 0 });
+}
+
+/* ================= PETA ================= */
+function ensureMap() {
+  if (map) return;
+  map = L.map('map').setView([-6.2, 106.8], 13);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  trackLayer = L.layerGroup().addTo(map);
+}
+
+function setMaxMarker(m) {
+  if (maxMarker) maxMarker.remove();
+  maxMarker = null;
+  if (m && m.la != null) {
+    maxMarker = L.circleMarker([+m.la, +m.lo], { radius: 9, color: '#c62828', fillOpacity: 1 })
+      .bindPopup(`Maks ${m.s.toFixed(0)} km/j · ${Math.abs(m.i).toFixed(1)} A`).addTo(map);
+  }
+}
+
+function drawTrack(pts, max) {
+  ensureMap();
+  trackLayer.clearLayers();
+  liveLine = null;
+  const ll = pts.filter(p => p.la != null).map(p => [+p.la, +p.lo]);
+  if (ll.length > 1) L.polyline(ll, { color: '#0b7a75', weight: 4 }).addTo(trackLayer);
+  setMaxMarker(max && max.t ? max : null);
+  map.invalidateSize();
+  if (ll.length > 1) map.fitBounds(ll, { padding: [20, 20], maxZoom: 17 });
+  else if (ll.length) map.setView(ll[0], 16);
+  $('mapTitle').textContent = `${pts.length} titik · ${ll.length} posisi GPS`;
+}
+
+/* ================= PERJALANAN ================= */
+function updateTrip() {
+  $('dist').textContent = trip.dist.toFixed(2);
+  $('ah').textContent = trip.ah.toFixed(2);
+  $('ahkm').textContent = eff(trip.dist, trip.ah);
+  $('maxS').textContent = trip.max.t ? trip.max.s.toFixed(0) + ' km/j' : '–';
+}
+
+function start() {
+  trip = { t0: Date.now(), dist: 0, ah: 0, wh: 0, r0: null, rNow: 0, pts: [],
+           max: { s: 0, i: 0, t: 0, la: null, lo: null }, maxDelta: 0 };
+  lastT = null; lastPos = null; firstFix = true;
+  ensureMap();
+  trackLayer.clearLayers();
+  setMaxMarker(null);
+  liveLine = L.polyline([], { color: '#0b7a75', weight: 4 }).addTo(trackLayer);
+  if (gpsId === null) startGps();
+  navigator.wakeLock && navigator.wakeLock.request('screen').then(w => wake = w).catch(() => {});
+  updateTrip();
+  $('btnStart').classList.add('hide');
+  $('btnStop').classList.remove('hide');
+  setStatus('Merekam perjalanan · layar tetap menyala.');
+}
+
+function stop() {
+  const t = trip;
+  const h = loadHist();
+  h.unshift({ t: t.t0, dist: t.dist, ah: t.ah, wh: t.wh,
+              ahBms: t.r0 !== null ? t.r0 - t.rNow : null,
+              max: t.max, maxDelta: t.maxDelta, n: t.pts.length });
+  try { localStorage.setItem('jkTrack:' + t.t0, JSON.stringify(t.pts)); }
+  catch (e) { setStatus('Penyimpanan penuh, jejak peta tidak tersimpan.', true); }
+  h.slice(20).forEach(x => localStorage.removeItem('jkTrack:' + x.t));
+  localStorage.setItem('jkTrips', JSON.stringify(h.slice(0, 20)));
+  trip = null; liveLine = null;
+  if (wake) wake.release().catch(() => {});
+  $('btnStop').classList.add('hide');
+  $('btnStart').classList.remove('hide');
+  setStatus('Perjalanan disimpan.');
+  showTab('hist');
+  openDetail(t.t0);
+}
+
+/* ================= ESTIMASI JARAK & INSIGHT ================= */
+let lastRemain = null;
+
+function avgKmPerAh() {
+  if (trip && trip.dist > 1 && trip.ah > 0.2) return { v: trip.dist / trip.ah, src: 'trip ini' };
+  const h = loadHist().filter(t => t.dist > 0.5 && t.ah > 0.1);
+  const d = h.reduce((a, t) => a + t.dist, 0), ah = h.reduce((a, t) => a + t.ah, 0);
+  return ah > 0.2 ? { v: d / ah, src: h.length + ' trip tersimpan' } : null;
+}
+
+function updateRange() {
+  const e = avgKmPerAh();
+  if (!e || lastRemain == null) { $('range').textContent = '–'; $('rangeSrc').textContent = 'belum ada data efisiensi'; return; }
+  $('range').textContent = Math.round(lastRemain * e.v);
+  $('rangeSrc').textContent = `km · rata-rata ${e.v.toFixed(2)} km/Ah (${e.src})`;
+}
+
+function renderInsights() {
+  const hist = loadHist(), el = $('insights');
+  const B = [[0, 30], [30, 50], [50, 70], [70, 999]].map(([a, b]) => ({ a, b, d: 0, ah: 0 }));
+  let tot = 0, hi = 0, dis = 0, reg = 0, idle = 0, peak = 0, n = 0;
+  hist.forEach(h => {
+    const pts = JSON.parse(localStorage.getItem('jkTrack:' + h.t) || '[]');
+    if (pts.length < 2) return;
+    n++;
+    for (let k = 1; k < pts.length; k++) {
+      const p = pts[k], dt = Math.min((p.t - pts[k - 1].t) / 1000, 5);
+      if (!(dt > 0)) continue;
+      tot += dt; peak = Math.max(peak, -p.i);
+      if (p.i < 0) { dis += -p.i * dt / 3600; if (p.i < -150) hi += dt; }
+      else if (p.i > 0.5) reg += p.i * dt / 3600;
+      if (p.s < 2) { idle += dt; continue; }
+      const b = B.find(x => p.s >= x.a && p.s < x.b);
+      b.d += p.s * dt / 3600; b.ah += -p.i * dt / 3600;
+    }
+  });
+  if (!n) { el.innerHTML = '<p class="small">Insight muncul setelah ada perjalanan tersimpan dengan data lengkap.</p>'; return; }
+  const L = [];
+  const ok = B.filter(b => b.d > 1 && b.ah > 0.2).map(b => ({ ...b, e: b.d / b.ah }));
+  if (ok.length) {
+    const mx = Math.max(...ok.map(b => b.e)), best = ok.find(b => b.e === mx), worst = ok.reduce((a, b) => b.e < a.e ? b : a);
+    const lbl = b => b.b > 900 ? '>' + b.a : b.a + '–' + b.b;
+    L.push('<b>Efisiensi per kecepatan (km/Ah)</b>' + ok.map(b =>
+      `<div class="brow"><span>${lbl(b)} km/j</span><i style="width:${(b.e / mx * 100).toFixed(0)}%"></i><b>${b.e.toFixed(2)}</b></div>`).join(''));
+    if (ok.length > 1) L.push(`Paling irit di ${lbl(best)} km/j (${best.e.toFixed(2)} km/Ah), paling boros di ${lbl(worst)} km/j (${worst.e.toFixed(2)} km/Ah).`);
+  }
+  if (tot > 60) {
+    L.push(`${(hi / tot * 100).toFixed(0)}% waktu berkendara dengan arus di atas 150 A (batas kontinu BMS).`);
+    L.push(`${(idle / tot * 100).toFixed(0)}% waktu diam atau berhenti.`);
+  }
+  if (dis > 0.5) L.push(`Regen mengembalikan ${(reg / dis * 100).toFixed(1)}% dari Ah yang dipakai.`);
+  L.push(`Arus puncak tercatat ${peak.toFixed(0)} A, kecepatan tertinggi ${Math.max(...hist.map(h => h.max && h.max.t ? h.max.s : 0)).toFixed(0)} km/j.`);
+  const v = hist.filter(h => h.dist > 0.5 && h.ah > 0.1);
+  if (v.length > 1) {
+    const last = v[0].dist / v[0].ah, r = v.slice(1);
+    const avg = r.reduce((a, h) => a + h.dist, 0) / r.reduce((a, h) => a + h.ah, 0), dp = (last / avg - 1) * 100;
+    L.push(`Trip terakhir ${last.toFixed(2)} km/Ah, ${Math.abs(dp).toFixed(0)}% ${dp >= 0 ? 'lebih irit' : 'lebih boros'} dari rata-rata trip sebelumnya.`);
+  }
+  el.innerHTML = L.map(x => `<p style="margin:6px 0">${x}</p>`).join('') + `<p class="small">Dari ${n} perjalanan dengan data lengkap.</p>`;
+}
+
+/* ================= RIWAYAT & EKSPOR ================= */
+function loadHist() { return JSON.parse(localStorage.getItem('jkTrips') || '[]'); }
+const fname = t => new Date(t).toISOString().slice(0, 16).replace(/[:T]/g, '-');
+
+function showHistory() {
+  const h = loadHist();
+  renderInsights();
+  $('history').innerHTML = h.length ? h.map((t, i) => `
+    <div class="trip"><b>${new Date(t.t).toLocaleString('id-ID')}</b><br>
+    ${t.dist.toFixed(2)} km · ${t.ah.toFixed(2)} Ah · ${eff(t.dist, t.ah)} km/Ah · ${per(t.wh, t.dist, 1)} Wh/km<br>
+    Maks ${t.max.t ? t.max.s.toFixed(0) + ' km/j pada ' + Math.abs(t.max.i).toFixed(1) + ' A' : '–'} · selisih sel maks ${t.maxDelta} mV
+    <div class="row" style="margin-top:6px">
+      <button class="sm alt" data-a="map" data-i="${i}">Ringkasan</button>
+      <button class="sm alt" data-a="gpx" data-i="${i}">GPX</button>
+      <button class="sm alt" data-a="csv" data-i="${i}">CSV</button>
+    </div></div>`).join('')
+    : '<p class="small">Belum ada perjalanan tersimpan.</p>';
+}
+
+$('history').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const t = loadHist()[+b.dataset.i];
+  const pts = JSON.parse(localStorage.getItem('jkTrack:' + t.t) || '[]');
+  if (b.dataset.a === 'map') openDetail(t.t);
+  if (b.dataset.a === 'gpx') download('perjalanan-' + fname(t.t) + '.gpx', toGpx(pts, 'Perjalanan ' + fname(t.t)), 'application/gpx+xml');
+  if (b.dataset.a === 'csv') download('perjalanan-' + fname(t.t) + '.csv', toCsv(pts), 'text/csv');
+};
+
+function toGpx(pts, name) {
+  const seg = pts.filter(p => p.la != null).map(p =>
+    `<trkpt lat="${p.la}" lon="${p.lo}"><time>${new Date(p.t).toISOString()}</time>` +
+    `<extensions><speed_kmh>${p.s}</speed_kmh><current_a>${p.i}</current_a><volt>${p.v}</volt>` +
+    `<soc>${p.soc}</soc><remain_ah>${p.r}</remain_ah><temp_c>${p.tmp}</temp_c></extensions></trkpt>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="JK Trip Logger" xmlns="http://www.topografix.com/GPX/1/1">\n` +
+    `<trk><name>${name}</name><trkseg>\n${seg}\n</trkseg></trk>\n</gpx>`;
+}
+
+function toCsv(pts) {
+  const head = 'waktu,lat,lon,kecepatan_kmj,volt,arus_a,soc,sisa_ah,suhu_c\n';
+  return head + pts.map(p => [new Date(p.t).toISOString(), p.la, p.lo, p.s, p.v, p.i, p.soc, p.r, p.tmp].join(',')).join('\n');
+}
+
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+}
+
+$('btnClear').onclick = () => {
+  if (!confirm('Hapus semua riwayat perjalanan?')) return;
+  loadHist().forEach(x => localStorage.removeItem('jkTrack:' + x.t));
+  localStorage.removeItem('jkTrips');
+  showHistory();
+};
+
+/* ================= RINGKASAN PERJALANAN ================= */
+let dmap = null, dLayer = null;
+const fmtDur = s => { const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} j ${m} mnt` : `${m} mnt`; };
+const srow = (k, v) => `<div><span>${k}</span> <b>${v}</b></div>`;
+
+function backToList() {
+  $('histDetail').classList.add('hide');
+  $('histList').classList.remove('hide');
+}
+
+function openDetail(t0) {
+  const t = loadHist().find(x => x.t === t0);
+  if (!t) return;
+  const pts = JSON.parse(localStorage.getItem('jkTrack:' + t.t) || '[]');
+  $('histList').classList.add('hide');
+  $('histDetail').classList.remove('hide');
+  $('dTitle').textContent = new Date(t.t).toLocaleString('id-ID');
+
+  if (!dmap) {
+    dmap = L.map('dmap').setView([-6.2, 106.8], 13);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(dmap);
+    dLayer = L.layerGroup().addTo(dmap);
+  }
+  dLayer.clearLayers();
+  const ll = pts.filter(p => p.la != null).map(p => [+p.la, +p.lo]);
+  if (ll.length > 1) L.polyline(ll, { color: '#0b7a75', weight: 4 }).addTo(dLayer);
+  if (t.max && t.max.la != null) {
+    L.circleMarker([+t.max.la, +t.max.lo], { radius: 9, color: '#c62828', fillOpacity: 1 })
+      .bindPopup(`Maks ${t.max.s.toFixed(0)} km/j · ${Math.abs(t.max.i).toFixed(1)} A`).addTo(dLayer);
+  }
+  $('dMapNote').textContent = ll.length ? '' : 'Jejak GPS tidak tersimpan untuk perjalanan ini.';
+  setTimeout(() => {
+    dmap.invalidateSize();
+    if (ll.length > 1) dmap.fitBounds(ll, { padding: [20, 20], maxZoom: 17 });
+    else if (ll.length) dmap.setView(ll[0], 16);
+  }, 60);
+
+  let html = srow('Jarak', t.dist.toFixed(2) + ' km') + srow('Ah terpakai (arus)', t.ah.toFixed(2) + ' Ah');
+  html += srow('Ah terpakai (BMS)', t.ahBms != null ? t.ahBms.toFixed(2) + ' Ah' : '–');
+  html += srow('km/Ah', eff(t.dist, t.ah)) + srow('Wh/km', per(t.wh, t.dist, 1));
+  html += srow('Kecepatan maks', t.max && t.max.t ? t.max.s.toFixed(0) + ' km/j' : '–');
+  html += srow('Arus saat kecepatan maks', t.max && t.max.t ? Math.abs(t.max.i).toFixed(1) + ' A' : '–');
+  if (pts.length) {
+    const first = pts[0], last = pts[pts.length - 1];
+    const durS = (last.t - first.t) / 1000;
+    const amps = pts.map(p => p.i);
+    const minA = Math.min(...amps), maxA = Math.max(...amps);
+    html += srow('Durasi', fmtDur(durS));
+    html += srow('Kecepatan rata-rata', durS > 0 ? (t.dist / (durS / 3600)).toFixed(1) + ' km/j' : '–');
+    html += srow('Arus pemakaian puncak', minA < -0.5 ? Math.abs(minA).toFixed(1) + ' A' : '–');
+    html += srow('Arus regen puncak', maxA > 0.5 ? maxA.toFixed(1) + ' A' : '–');
+    html += srow('SOC awal → akhir', `${first.soc}% → ${last.soc}%`);
+    html += srow('Sisa Ah awal → akhir', `${first.r.toFixed(2)} → ${last.r.toFixed(2)}`);
+    html += srow('Selisih sel maks', t.maxDelta + ' mV');
+    html += srow('Suhu baterai maks', Math.max(...pts.map(p => p.tmp)).toFixed(1) + ' °C');
+  } else {
+    html += srow('Data lain', 'tidak tersedia');
+  }
+  $('dSum').innerHTML = `<div class="stats">${html}</div>`;
+  $('dGpx').onclick = () => download('perjalanan-' + fname(t.t) + '.gpx', toGpx(pts, 'Perjalanan ' + fname(t.t)), 'application/gpx+xml');
+  $('dCsv').onclick = () => download('perjalanan-' + fname(t.t) + '.csv', toCsv(pts), 'text/csv');
+  window.scrollTo(0, 0);
+}
+
+$('btnBack').onclick = () => { backToList(); showHistory(); };
+
+/* ================= NAVIGASI TAB ================= */
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
+  document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  if (name === 'map') { ensureMap(); setTimeout(() => map.invalidateSize(), 50); }
+  if (name === 'hist') { backToList(); showHistory(); }
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll('.tabbar button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+
+$('btnConn').onclick = connect;
+$('btnStart').onclick = start;
+$('btnStop').onclick = stop;
+
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('jkTheme', t); } catch (e) {}
+  $('btnTheme').textContent = t === 'night' ? 'Siang' : 'Malam';
+}
+$('btnTheme').onclick = () => setTheme(document.documentElement.dataset.theme === 'night' ? 'day' : 'night');
+let th0 = 'night'; try { th0 = localStorage.getItem('jkTheme') || 'night'; } catch (e) {}
+setTheme(th0);
+
+if (!navigator.bluetooth) setStatus('Browser ini tidak mendukung Web Bluetooth. Di iPhone gunakan Bluefy.', true);
+startGps();
+showHistory();
+</script>
+</body>
+</html>
